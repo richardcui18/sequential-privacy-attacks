@@ -11,6 +11,7 @@ def compute_PR_size(published_region):
 def expansion_w_tl_at_center_with_deviation(unique_values_on_each_dimension, true_location, attack_type, lambda_value, random_seed, deviation_amount):
     random.seed(random_seed)
     published_region = true_location.copy()
+    deviated = False
     if attack_type == 'PR_uniform_attack':
         # minimum size of PR
         pr_lower_bound = math.ceil(1/lambda_value)
@@ -56,6 +57,7 @@ def expansion_w_tl_at_center_with_deviation(unique_values_on_each_dimension, tru
                 deviation_amount = (len_longitude - 1)//2
 
             if deviation_amount > 0 and deviation_amount <= (len_longitude - 1)//2:
+                deviated = True
                 published_region[0] = [str(int(num) - deviation_amount) for num in published_region[0]]
 
         else:
@@ -64,9 +66,10 @@ def expansion_w_tl_at_center_with_deviation(unique_values_on_each_dimension, tru
                 deviation_amount = (len_latitude - 1)//2
 
             if deviation_amount > 0 and deviation_amount <= (len_latitude - 1)//2:
+                deviated = True
                 published_region[1] = [str(int(num) - deviation_amount) for num in published_region[1]]
             
-        return published_region
+        return published_region, deviated
 
 # helper function to generate all possible subsets of size 1 given a PR state
 def generate_subsets_from_pr(state):

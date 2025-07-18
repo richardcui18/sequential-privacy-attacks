@@ -1,4 +1,4 @@
-import uniform_attack
+import uniform_attack as uniform_attack
 import numpy as np
 import sys
 from itertools import product
@@ -78,8 +78,6 @@ if __name__ == '__main__':
 
     # Attacking each trajectory
     for i in range(len(dataset['tl_true_sequences'])):
-        if i < 5:
-            continue
         print()
         print('****************** Trajectory ' + str(i+1) + ' of ' + str(len(dataset['tl_true_sequences'])) + ' ******************')
         print()
@@ -94,7 +92,7 @@ if __name__ == '__main__':
         # Run HMM-RL algorithm
         results_weighted = hmm_rl.run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, 
                         args.lambda_value, total_time, delta, num_iter, dataset['unique_values_on_each_dimension'], 
-                        tl_true_sequence_with_feature_names, seed_attacker, dataset['cut_num_to_lon'], dataset['cut_num_to_lat'])
+                        tl_true_sequence_with_feature_names, seed_attacker, dataset['cut_num_to_lon'], dataset['cut_num_to_lat'], args.k, args.gamma)
 
         # Calculate error
         euclidean_distance_list = []

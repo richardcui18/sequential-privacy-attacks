@@ -4,8 +4,8 @@ from hmmlearn import hmm
 import math
 import random
 from sklearn.preprocessing import normalize
-import uniform_attack
-from itertools import product
+import uniform_attack as uniform_attack
+from itertools import product, combinations
 import geopy.distance
 import sys
 import os
@@ -16,8 +16,8 @@ pass_num = 0
 
 # Helper function: find all grids that are within a given PR
 def generate_grids_from_pr(published_region):
-    combinations = list(itertools.product(*published_region))
-    tl_list = [list(map(lambda x: [x], combination)) for combination in combinations]
+    combs = list(itertools.product(*published_region))
+    tl_list = [list(map(lambda x: [x], combination)) for combination in combs]
     
     return tl_list
 
@@ -105,7 +105,7 @@ class SuppressPrint:
 
 def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, lambda_value, total_time, delta,
                      num_iter, unique_values_on_each_dimension, tl_true_sequence_with_feature_names, seed,
-                     cut_num_to_lon, cut_num_to_lat):
+                     cut_num_to_lon, cut_num_to_lat, window_size, gamma_attacker):
     # initialization
     observed_sequence = []
     pr_state_dict = {}
@@ -124,7 +124,7 @@ def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, la
     x_range_int = list(map(int, unique_values_on_each_dimension[0]))
     y_range_int = list(map(int, unique_values_on_each_dimension[1]))
     for tl_state in possible_tl_states:
-        possible_pr_states += generate_supersets_from_tl(tl_state, min_pr_size, min_pr_size+5, (min(x_range_int), max(x_range_int)), (min(y_range_int), max(y_range_int)))
+        possible_pr_states += generate_supersets_from_tl(tl_state, min_pr_size, min_pr_size+gamma_attacker, (min(x_range_int), max(x_range_int)), (min(y_range_int), max(y_range_int)))
 
     possible_pr_states = possible_pr_states + [pr for pr in pr_true_sequence_with_feature_names if pr not in possible_pr_states]
     
@@ -189,7 +189,7 @@ def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, la
         transition_prob_matrix_forward, emission_prob_matrix, initial_distribution_prior, total_time, delta, lambda_value, 
         observed_sequence, pr_true_sequence_with_feature_names, immutable_index, num_hidden_states, num_observed_states,
                  tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names,
-             unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat)
+             unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat, gamma_attacker)
     
     euclidean_distance_day_pass = []
     euclidean_distance_list = []
@@ -217,13 +217,13 @@ def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, la
             transition_prob_matrix_backward, emission_prob_matrix, post_initial_distribution, model, tl_prediction_for_this_pass, largest_deviation_for_this_pass = one_pass(
             transition_prob_matrix_backward, emission_prob_matrix, post_initial_distribution, total_time, delta, lambda_value, 
             observed_sequence, pr_true_sequence_with_feature_names, immutable_index, num_hidden_states, num_observed_states,
-                 tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names, unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat)
+                 tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names, unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat, gamma_attacker)
             transition_matrices.append(transition_prob_matrix_backward)
         else:
             transition_prob_matrix_forward, emission_prob_matrix, post_initial_distribution, model, tl_prediction_for_this_pass, largest_deviation_for_this_pass = one_pass(
             transition_prob_matrix_forward, emission_prob_matrix, post_initial_distribution, total_time, delta, lambda_value, 
             observed_sequence, pr_true_sequence_with_feature_names, immutable_index, num_hidden_states, num_observed_states,
-                 tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names, unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat)
+                 tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names, unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat, gamma_attacker)
             transition_matrices.append(transition_prob_matrix_forward)
         
         pass_num += 1
@@ -242,6 +242,15 @@ def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, la
                                                                   
         
         euclidean_distance_day_pass.append(euclidean_distance_list)
+
+        if j > 2 * window_size:
+            matrices_within_range = transition_matrices[-window_size:]
+            stacked_matrices = np.stack(matrices_within_range)
+            average_matrix = np.mean(stacked_matrices, axis=0)
+            if direction == 'backward':
+                transition_prob_matrix_forward = average_matrix
+            else:
+                transition_prob_matrix_backward = average_matrix
         
         # change direction variable
         if direction == 'forward':
@@ -259,7 +268,7 @@ def run_rl_algorithm(pr_true_sequence_with_feature_names, possible_tl_states, la
 def one_pass(transition_prob_matrix, emission_prob_matrix, initial_distribution, total_time, delta, lambda_value, 
              observed_sequence, pr_true_sequence_with_feature_names, immutable_index,
              num_hidden_states, num_observed_states, tl_state_dict, pr_state_dict, tl_true_sequence_with_feature_names,
-             unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat):
+             unique_values_on_each_dimension, cut_num_to_lon, cut_num_to_lat, gamma_attacker):
     laplace_factor = 1e-10
     
     tl_prediction_for_this_pass = []
@@ -310,7 +319,7 @@ def one_pass(transition_prob_matrix, emission_prob_matrix, initial_distribution,
         tl_prediction_for_this_pass.append(tl_i_hat_state)
 
         # predict PR i+1 hat using greedy expansion with TL at center
-        pr_i_hat_state_greedy = uniform_attack.expansion_w_tl_at_center_with_deviation(unique_values_on_each_dimension, true_location = tl_i_hat_state, 
+        pr_i_hat_state_greedy, _ = uniform_attack.expansion_w_tl_at_center_with_deviation(unique_values_on_each_dimension, true_location = tl_i_hat_state, 
                     attack_type= 'PR_uniform_attack', lambda_value = lambda_value, random_seed=100, deviation_amount=0)
         pr_i_hat_state = []
         for dim in pr_i_hat_state_greedy:
